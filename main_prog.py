@@ -1,8 +1,13 @@
 import sys, sqlite3, requests, logging
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 from PyQt6.QtWidgets import QApplication,QFormLayout, QHBoxLayout, QMessageBox, QPushButton, QDialog, QDoubleSpinBox, QDateEdit, QMainWindow, QLineEdit, QTextEdit, QToolBar, QStatusBar, QWidget, QLabel, QVBoxLayout, QComboBox, QGridLayout, QStackedWidget, QTableWidget, QTableWidgetItem
 from PyQt6.QtGui import QIcon, QAction
-from PyQt6.QtCore import QSize, Qt, QDate
+from PyQt6.QtCore import QSize, Qt, QDate, pyqtSignal
 from pybit.unified_trading import HTTP
+from matplotlib.figure import Figure
 from db import db_create_main, db_create_pairs
 db_create_main()
 db_create_pairs()
@@ -14,7 +19,7 @@ class MainWindow(QMainWindow):
 
     def initUi(self):
         self.setWindowTitle('KPiR by Jariloo')
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(50, 50, 1920, 1080)
         
         # Tworzenie przycisków w głównym oknie
         self.table_button = QPushButton('Tabela')
@@ -45,6 +50,7 @@ class MainWindow(QMainWindow):
         self.table_view = StockTableView(self)
         self.table_view.initUi()  # Inicjalizacja widoku tabeli
         self.central_widget.layout.addWidget(self.table_view)
+       
         
         # Tworzenie widoku par walutowych
         self.pairs_view = EditPairsDialog(self)
@@ -111,24 +117,33 @@ class StockForm(QWidget):
         # Pole liczbowe zmiennoprzecinkowe(Ilość)
         label = QLabel("Ilość:")
         self.stock_count = QDoubleSpinBox()
-        self.stock_count.setRange(-9999.99, 9999999999999999.99999)  # Ustaw zakres na -9999.99 do 9999.99 (lub odpowiednio)
+        self.stock_count.setRange(-9999.99, 9999999999999999.9999999999)  # Ustaw zakres na -9999.99 do 9999.99 (lub odpowiednio)
         self.stock_count.setStyleSheet("max-width: 200px;")
+        self.stock_count.setDecimals(6)
+
         layout.addWidget(label)
         layout.addWidget(self.stock_count)
 
         # Pole liczbowe zmiennoprzecinkowe(Cena)
         label = QLabel("Cena:")
         self.stock_price = QDoubleSpinBox()
-        self.stock_price.setRange(-9999.99, 9999999999999999.99999)
+        self.stock_price.setRange(-9999.99, 9999999999999999.9999999999)
         self.stock_price.setStyleSheet("max-width: 200px;")
+        self.text_field3.currentIndexChanged.connect(self.update_stock_price)
+        self.stock_price.setDecimals(6)
+
+        self.update_stock_price()  # Inicjalizacja ceny
         layout.addWidget(label)
         layout.addWidget(self.stock_price)
+       
 
         # Pole liczbowe zmiennoprzecinkowe(Warrtość)
         label = QLabel("Wartość zakupu:")
         self.stock_value = QDoubleSpinBox()
-        self.stock_value.setRange(-9999.99, 9999999999999999.99999)
+        self.stock_value.setRange(-9999.99, 9999999999999999.9999999999)
+        self.stock_value.setDecimals(6)
         self.stock_value.setStyleSheet("max-width: 200px;")
+        self.stock_count.valueChanged.connect(self.update_stock_value)
         layout.addWidget(label)
         layout.addWidget(self.stock_value)
 
@@ -171,7 +186,97 @@ class StockForm(QWidget):
                 self.text_field3.addItem(pair[0])
 
             db.close()
+    def get_zonda_price(self):
+        selected_pair = self.text_field3.currentText()
+        if not selected_pair:
+            return None
+        url = f"https://api.zondacrypto.exchange/rest/trading/ticker/{selected_pair}"
+        headers = {'content-type': 'application/json'}
+        
+        try:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            lowest_ask = data.get('ticker', {}).get('lowestAsk')
+            
+            if lowest_ask:
+                try:
+                    return float(lowest_ask)
+                except ValueError:
+                    return None
+        except:
+            pass
+        
+        return None
+    def get_bybit_price(self):
+        selected_pair = self.text_field3.currentText()
+        if not selected_pair:
+            return None
 
+        try:
+            session = HTTP(testnet=True)  # Odpowiednio dostosuj, czy używasz testnet czy nie
+            response = session.get_tickers(category="spot", symbol=selected_pair)
+            lowest_ask = response['result']['list'][0]['lastPrice']
+
+            if lowest_ask:
+                try:
+                    return float(lowest_ask)
+                except ValueError:
+                    return None
+        except:
+            pass
+
+        return None
+    def get_binance_price(self):
+        selected_pair = self.text_field3.currentText()
+        if not selected_pair:
+            return None
+
+        url = f"https://api.binance.com/api/v3/ticker/price?symbol={selected_pair}"
+        headers = {'content-type': 'application/json'}
+
+        try:
+            response = requests.get(url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+            lowest_ask = data.get('price')
+
+            if lowest_ask:
+                try:
+                    return float(lowest_ask)
+                except ValueError:
+                    return None
+        except:
+            pass
+
+        return None
+    def update_stock_value(self):
+        quantity = self.stock_count.value()
+        price = self.stock_price.value()
+        
+        # Oblicz wartość na podstawie ilości i ceny
+        value = quantity * price
+        
+        # Ustaw obliczoną wartość w polu Wartość zakupu
+        self.stock_value.setValue(value)
+    def update_stock_price(self):
+        selected_option = self.exchange_combo.currentText()
+        selected_pair = self.text_field3.currentText()
+        
+        if selected_option == "Zonda":
+            price = self.get_zonda_price()
+        elif selected_option == "Bybit":
+            price = self.get_bybit_price()
+        elif selected_option == "Binance":
+            price = self.get_binance_price()
+        else:
+            price = None
+        
+        if price is not None:
+            self.stock_price.setValue(price)
+        else:
+            # Jeśli nie udało się pobrać ceny, ustaw pole na 0
+            self.stock_price.setValue(0.0)
     def add_data_to_db(self):
         
         # Pobierz dane z pól formularza
@@ -186,42 +291,11 @@ class StockForm(QWidget):
         # Sprawdzanie giełdy
         selected_option = self.exchange_combo.currentText()
         if selected_option == "Zonda":
-            url = f"https://api.zondacrypto.exchange/rest/trading/ticker/{para}"
-            headers = {'content-type': 'application/json'}
-            try:
-                response = requests.get(url, headers=headers)
-                response.raise_for_status()
-                data = response.json()
-                lowest_ask = data.get('ticker', {}).get('lowestAsk')
-                
-                if lowest_ask:
-                    # Sprawdź, czy wartość lowest_ask jest liczbą
-                    try:
-                        aktualna_cena = float(lowest_ask)
-                    except ValueError:
-                        aktualna_cena = None
-            except:
-                pass
-                    
+            aktualna_cena = self.get_zonda_price()
         elif selected_option == "Bybit":
-            try:
-                session = HTTP(testnet=True)
-                response = session.get_tickers(
-                    category="spot",
-                    symbol=para,)
-                lowest_ask = response['result']['list'][0]['lastPrice']
-                if lowest_ask:
-                        # Sprawdź, czy wartość lowest_ask jest liczbą
-                        try:
-                            aktualna_cena = float(lowest_ask)
-                        except ValueError:
-                            aktualna_cena = None
-            except:
-                pass
+            aktualna_cena = self.get_bybit_price()
         elif selected_option == "Binance":
-            # Wybrano opcję "Binance"
-            pass
-        
+            aktualna_cena = self.get_binance_price()
 
         # Połącz z bazą danych
         db = sqlite3.connect("simple.db")
@@ -234,7 +308,8 @@ class StockForm(QWidget):
 
             # Zatwierdź zmiany
             db.commit()
-            
+            if self.main_window:
+                self.main_window.table_view.load_stock_data()
             # Opcjonalnie, wyczyść pola formularza po dodaniu danych
             self.date_edit.setDate(QDate.currentDate())
             self.exchange_combo.setCurrentIndex(0)
@@ -244,8 +319,7 @@ class StockForm(QWidget):
             self.stock_value.setValue(0.0)
 
             # Odśwież widok tabeli (wywołaj funkcję refresh_data w widoku StockTableView)
-            if self.main_window:
-                self.main_window.table_view.refresh_data()
+            
 
         except Exception as e:
             # Obsłuż błędy przy wstawianiu danych do bazy
@@ -255,6 +329,15 @@ class StockForm(QWidget):
             # Zamknij kursor i połączenie z bazą danych
             cursor.close()
             db.close()
+            
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Icon.Information)
+            msg.setText("Transakcja została dodana.")
+            msg.setWindowTitle("Jest Git!")
+            msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+            msg.exec()
+            
+   
 
 class StockTableView(QWidget):
     def __init__(self, main_window):
@@ -263,63 +346,168 @@ class StockTableView(QWidget):
         
 
     def initUi(self):
+        layout = QGridLayout()
+        self.setLayout(layout)
+
         # Tworzenie tabeli do wyświetlania danych
         self.stock_table = QTableWidget()
         self.stock_table.setColumnCount(8)  # Liczba kolumn w tabeli (zgodna z liczbą kolumn w bazie danych)
-
         # Ustaw nazwy kolumn w tabeli
         column_headers = ["ID", "Data Zakupu", "Giełda", "Para", "Ilość", "Cena Zakupu", "Wartość Zakupu", "Aktualna Cena"]
         self.stock_table.setHorizontalHeaderLabels(column_headers)
         # Ukryj kolumnę "ID"
         self.stock_table.setColumnHidden(0, True)  # Indeks kolumny "ID" to 0
+        self.stock_table.setMaximumWidth(750)
         
-        
-
-        layout = QVBoxLayout()
-        layout.addWidget(self.stock_table)
-        self.setLayout(layout)
-
         # Przycisk odświeżania
         refresh_button = QPushButton('Odśwież')
         refresh_button.clicked.connect(self.refresh_data)
-        layout.addWidget(refresh_button)
+        refresh_button.setMaximumWidth(100)
+        
+        # Dodawanie wykresu kołowego
+        self.figure_pie, self.ax = plt.subplots(figsize=(6, 6))
+        self.canvas_pie = FigureCanvas(self.figure_pie)
 
-        # Wczytaj dane do tabeli
+        # Dodawanie wykresu liniowego
+        self.figure_line, self.ax_line = plt.subplots(figsize=(6, 4))
+        self.canvas_line = FigureCanvas(self.figure_line)
+        layout.addWidget(self.canvas_line, 1, 1)
+        # Ustawianie widgetów na siatce
+        layout.addWidget(refresh_button, 0, 0)
+        layout.addWidget(self.canvas_pie, 1, 0)
+        layout.addWidget(self.stock_table, 2, 0)
+        layout.addWidget(self.canvas_line, 1, 1)
+        
+        # Wyświetlanie widgetów
+      
+        self.generate_pie_chart()
         self.load_stock_data()
+        self.generate_line_chart()
+    
+    def generate_line_chart(self):
+        # Utwórz połączenie z bazą danych SQLite
+        db_connection = sqlite3.connect("simple.db")
+        # Pobierz dane z tabeli inwestycje
+        query = "SELECT data_zakupu, wartosc_zakupu FROM inwestycje ORDER BY data_zakupu"
+        df = pd.read_sql_query(query, db_connection)
+        # Zamknij połączenie z bazą danych
+        db_connection.close()
+
+        # Przekształć dane w odpowiedni format
+        df['data_zakupu'] = pd.to_datetime(df['data_zakupu'])
+        df.set_index('data_zakupu', inplace=True)
+        df.sort_index(inplace=True)
+
+        # Oblicz kumulacyjny cashflow
+        df['cashflow'] = df['wartosc_zakupu'].cumsum()
+
+        # Wyczyść poprzedni wykres
+        self.ax_line.clear()
+
+        # Narysuj wykres liniowy
+        self.ax_line.plot(df.index, df['cashflow'], marker='o', linestyle='-')
+
+        # Dodaj tytuł i etykiety osi
+        self.ax_line.set_title('Cashflow w czasie')
+        self.ax_line.set_xlabel('Data Zakupu')
+        self.ax_line.set_ylabel('Cashflow')
+
+        # Odśwież wykres
+        self.canvas_line.draw()
+    def generate_pie_chart(self):
+        # Utworzenie połączenia z bazą danych SQLite
+        db_connection = sqlite3.connect("simple.db")
+        # Pobranie danych z tabeli do DataFrame
+        query = "SELECT gielda, SUM(wartosc_zakupu) as wartosc_sum FROM inwestycje GROUP BY gielda"
+        df = pd.read_sql_query(query, db_connection)
+        # Zamknięcie połączenia z bazą danych
+        db_connection.close()
+        # Ustawienie etykiet i wartości dla wykresu
+        labels = df['gielda']
+        sizes = df['wartosc_sum']
+        # Wyczyszczenie poprzedniego wykresu
+        self.ax.clear()
+        # Tworzenie wykresu kołowego
+        self.ax.pie(sizes, labels=labels, autopct='%1.1f%%', startangle=140)
+        # Dodanie tytułu wykresu
+        self.ax.set_title('Wartość inwestycji na poszczególnych giełdach')
+        # Odświeżenie wykresu
+        self.canvas_pie.draw()
+
+
     def refresh_data(self):
-        db = sqlite3.connect("simple.db")
-        cursor = db.cursor()
-        cursor.execute("SELECT data_zakupu, gielda, para, ilosc, cena_zakupu, wartosc_zakupu FROM inwestycje")
-        data = cursor.fetchall()
-        db.close()
         for row in range(self.stock_table.rowCount()):
-            # Sprawdź, czy giełda to "Zonda" (kolumna 2 to "Giełda")
+            # Pobierz informacje o giełdzie (kolumna 2 to "Giełda")
             gielda_item = self.stock_table.item(row, 2)
-            if gielda_item and gielda_item.text() == "Zonda":
-                # Jeśli tak, pobierz parę walutową (kolumna 3 to "Para")
-                para_item = self.stock_table.item(row, 3)
-                if para_item:
-                    para = para_item.text()
-                    print(para)
+            if not gielda_item:
+                continue  # Pominięcie wiersza bez informacji o giełdzie
 
-                    # Tutaj wykonujesz request HTTP dla pary walutowej "Zonda"
-                    url = f"https://api.zondacrypto.exchange/rest/trading/ticker/{para}"
-                    headers = {'content-type': 'application/json'}
-                    try:
-                        response = requests.get(url, headers=headers)
-                        response.raise_for_status()
-                        data = response.json()
-                        lowest_ask = data.get('ticker', {}).get('lowestAsk')
+            gielda = gielda_item.text()
+            para_item = self.stock_table.item(row, 3)
 
-                        # Aktualizuj dane w tabeli (kolumna 7 to "Aktualna Cena")
-                        if lowest_ask is not None:
-                            self.stock_table.item(row, 7).setText(str(lowest_ask))
-                    except requests.exceptions.RequestException as e:
-                        print(f"Błąd podczas pobierania danych: {e}")
-                    except Exception as e:
-                        print(f"Błąd przetwarzania danych: {e}")
+            if not para_item:
+                continue  # Pominięcie wiersza bez informacji o parze walutowej
 
-            
+            para = para_item.text()
+            lowest_ask = None  # Inicjalizacja wartości na None
+
+            success = False  # Zmienna śledząca sukces operacji pobierania danych
+
+            if gielda == "Zonda":
+                # Wykonaj request HTTP dla giełdy "Zonda"
+                url = f"https://api.zondacrypto.exchange/rest/trading/ticker/{para}"
+                headers = {'content-type': 'application/json'}
+                try:
+                    response = requests.get(url, headers=headers)
+                    response.raise_for_status()
+                    data = response.json()
+                    lowest_ask = data.get('ticker', {}).get('lowestAsk')
+                    success = True  # Operacja pobierania danych zakończona sukcesem
+                    print(lowest_ask)
+                    if success and lowest_ask is not None:
+                        self.stock_table.item(row, 7).setText(str(lowest_ask))
+                except requests.exceptions.RequestException as e:
+                    print(f"Błąd podczas pobierania danych dla Zonda: {e}")
+                except Exception as e:
+                    print(f"Błąd przetwarzania danych dla Zonda: {e}")
+
+            elif gielda == "Bybit":
+                try:
+                    session = HTTP(testnet=True)
+                    response = session.get_tickers(
+                        category="spot",
+                        symbol=para,
+                    )
+                    lowest_ask = response['result']['list'][0]['lastPrice']
+                    success = True  # Operacja pobierania danych zakończona sukcesem
+                    print(lowest_ask)
+                    if success and lowest_ask is not None:
+                        self.stock_table.item(row, 7).setText(str(lowest_ask))
+                except Exception as e:
+                    print(f"Błąd podczas pobierania danych dla Bybit: {e}")
+           
+
+            elif gielda == "Binance":
+                url = f"https://api.binance.com/api/v3/ticker/price?symbol={para}"
+                headers = {'content-type': 'application/json'}
+                try:
+                    response = requests.get(url, headers=headers)
+                    response.raise_for_status()
+                    data = response.json()
+                    lowest_ask = data.get('price')
+                    success = True  # Operacja pobierania danych zakończona sukcesem
+                    print(lowest_ask)
+                    if success and lowest_ask is not None:
+                        self.stock_table.item(row, 7).setText(str(lowest_ask))
+                except requests.exceptions.RequestException as e:
+                    print(f"Błąd podczas pobierania danych z Binance: {e}")
+                except Exception as e:
+                    print(f"Błąd przetwarzania danych z Binance: {e}")
+
+            # Aktualizuj dane w tabeli (kolumna 7 to "Aktualna Cena")
+            # if success and lowest_ask is not None:
+            #     self.stock_table.item(row, 7).setText(str(lowest_ask))
+
     def load_stock_data(self):
         db = sqlite3.connect("simple.db")
         cursor = db.cursor()
