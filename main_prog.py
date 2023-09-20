@@ -197,9 +197,7 @@ class StockForm(QWidget):
         cursor = db.cursor()
 
         # Zapytanie SQL
-        cursor.execute("""SELECT pairs.name AS pair_name, stocks.name AS stock_name
-                           FROM pairs
-                           JOIN stocks ON pairs.stock_id = stocks.id""")
+        cursor.execute("SELECT stocks.name FROM stocks")
         exchanges = cursor.fetchall()
 
         # Dodawanie nazw do comboboxa
@@ -209,12 +207,17 @@ class StockForm(QWidget):
         db.close()
     def load_pairs_for_exchange(self):
         selected_exchange = self.stock_combo.currentText()
+        print(selected_exchange)
         if selected_exchange:
             db = sqlite3.connect("simple.db")
             cursor = db.cursor()
 
             # Zapytanie SQL, aby pobrać pary walutowe dla wybranej giełdy
-            cursor.execute("SELECT stock FROM pairs WHERE exchange = ?", (selected_exchange,))
+            
+            cursor.execute("""SELECT pairs.name AS pair_name, stocks.name AS stock_name
+                       FROM pairs
+                       JOIN stocks ON pairs.stock_id = stocks.id
+                       WHERE stocks.name = ?""", (selected_exchange,))
             pairs = cursor.fetchall()
 
             # Wyczyść ComboBox z paramami
@@ -236,7 +239,7 @@ class StockForm(QWidget):
             response = requests.get(url, headers=headers)
             response.raise_for_status()
             data = response.json()
-            lowest_ask = data.get('ticker', {}).get('lowestAsk')
+            lowest_ask = data.get('ticker', {}).get('rate')
             
             if lowest_ask:
                 try:
@@ -326,26 +329,32 @@ class StockForm(QWidget):
         ilosc = self.stock_count.value()
         cena_zakupu = self.stock_price.value()
         wartosc_zakupu = self.stock_value.value()  # Możesz pobrać wartość z pola stock_value
-        aktualna_cena = None
+        # aktualna_cena = None
         # Sprawdzanie giełdy
-        selected_option = self.stock_combo.currentText()
-        if selected_option == "Zonda":
-            aktualna_cena = self.get_zonda_price()
-        elif selected_option == "Bybit":
-            aktualna_cena = self.get_bybit_price()
-        elif selected_option == "Binance":
-            aktualna_cena = self.get_binance_price()
+        # selected_option = self.stock_combo.currentText()
+        # if selected_option == "Zonda":
+        #     aktualna_cena = self.get_zonda_price()
+        # elif selected_option == "Bybit":
+        #     aktualna_cena = self.get_bybit_price()
+        # elif selected_option == "Binance":
+        #     aktualna_cena = self.get_binance_price()
 
         # Połącz z bazą danych
         db = sqlite3.connect("simple.db")
         cursor = db.cursor()
 
         try:
+            a = 0
+            b = 0
             # Wstaw dane do tabeli
-            cursor.execute("INSERT INTO inwestycje (data_zakupu, gielda, para, ilosc, cena_zakupu, wartosc_zakupu, aktualna_cena) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (data_zakupu, gielda, para, ilosc, cena_zakupu, wartosc_zakupu, aktualna_cena))
-
-            # Zatwierdź zmiany
+            cursor.execute("SELECT id FROM pairs WHERE name=?", (para,))
+            result = cursor.fetchone()[0]
+            cursor.execute("INSERT INTO purchase (purch_pairs, date, count, price, value) VALUES (?, ?, ?, ?, ?)",
+                        (result, data_zakupu, ilosc, cena_zakupu, wartosc_zakupu))
+            cursor.execute("SELECT last_insert_rowid()")
+            last_inserted_row_id = cursor.fetchone()[0]
+            cursor.execute("INSERT INTO prices (act_id, act_price, act_value) VALUES (?, ?, ?)",
+               (last_inserted_row_id, a, b))
             db.commit()
             if self.main_window:
                 self.main_window.table_view.load_stock_data()
@@ -375,10 +384,9 @@ class StockForm(QWidget):
             msg.setWindowTitle("Jest Git!")
             msg.setStandardButtons(QMessageBox.StandardButton.Ok)
             msg.exec()
-            
-   
-
 class StockTableView(QWidget):
+
+
     def __init__(self, main_window):
         super().__init__()
         self.main_window = main_window  # Przekazywanie referencji do MainWindow
@@ -392,16 +400,20 @@ class StockTableView(QWidget):
         self.stock_table = QTableWidget()
         self.stock_table.setColumnCount(9)  # Liczba kolumn w tabeli (zgodna z liczbą kolumn w bazie danych)
         # Ustaw nazwy kolumn w tabeli
-        column_headers = ["ID", "Data Zakupu", "Giełda", "Para", "Ilość", "Cena Zakupu", "Wartość Zakupu", "Aktualna Cena", "Aktualna Wartość"]
+        column_headers = ["Data", "Para", "Giełda", "Ilość", "Cena Zakupu", "Wartość Zakupu", "Aktualna Cena", "Aktualna Wartość", "Z/S"]
+
         self.stock_table.setHorizontalHeaderLabels(column_headers)
         # Ukryj kolumnę "ID"
-        self.stock_table.setColumnHidden(0, True)  # Indeks kolumny "ID" to 0
+        # self.stock_table.setColumnHidden(0, True)  # Indeks kolumny "ID" to 0
         self.stock_table.setMaximumWidth(818)
         
         # Przycisk odświeżania
-        refresh_button = QPushButton('Odśwież')
-        refresh_button.clicked.connect(self.refresh_data)
-        refresh_button.setMaximumWidth(100)
+        # Przycisk odświeżania
+        self.refresh_button = QPushButton("Odśwież")
+        layout.addWidget(self.refresh_button, 1, 0)
+
+        # Połącz przycisk z funkcją odświeżania
+        self.refresh_button.clicked.connect(self.refresh_data)
         
         # Statystyki
         stats_field = QWidget()
@@ -433,7 +445,7 @@ class StockTableView(QWidget):
         layout.addWidget(self.canvas_line, 1, 1)
         
         # Ustawianie widgetów na siatce
-        layout.addWidget(refresh_button, 1, 0)
+   
         layout.addWidget(self.canvas_pie, 2, 1)
         layout.addWidget(self.stock_table, 2, 0)
         layout.addWidget(self.canvas_line, 1, 1)
@@ -442,6 +454,7 @@ class StockTableView(QWidget):
         # Wyświetlanie widgetów
         self.generate_pie_chart()
         self.load_stock_data()
+        self.refresh_data()
         # self.generate_line_chart()
     
     # def generate_line_chart(self):
@@ -475,7 +488,18 @@ class StockTableView(QWidget):
     #     self.ax_line.set_ylabel('Cashflow')
     #     # Odśwież wykres
     #     self.canvas_line.draw()
+        rowCount = self.stock_table.rowCount()
+        columnCount = self.stock_table.columnCount()
 
+        for row in range(rowCount):
+            for col in range(columnCount):
+                item = self.stock_table.item(row, col)
+                if item is not None:
+                    data = item.text()
+                    print(f"Dane w wierszu {row}, kolumnie {col}: {data}")
+
+   
+       
     def generate_pie_chart(self):
         # Utworzenie połączenia z bazą danych SQLite
         db_connection = sqlite3.connect("simple.db")
@@ -488,6 +512,7 @@ class StockTableView(QWidget):
                     '''
 
         df = pd.read_sql_query(query, db_connection)
+        
         # Zamknięcie połączenia z bazą danych
         db_connection.close()
         # Ustawienie etykiet i wartości dla wykresu
@@ -510,25 +535,40 @@ class StockTableView(QWidget):
        
         # Odświeżenie wykresu
         self.canvas_pie.draw()
-
-
+    def load_stock_data(self):
+        db = sqlite3.connect("simple.db")
+        cursor = db.cursor()
+        cursor.execute("""SELECT 
+                        purchase.date AS date, pairs.name AS pair, stocks.name AS name, purchase.count AS count, purchase.price AS price, purchase.value AS value, prices.act_price AS act_price, prices.act_value AS act_value
+                        FROM pairs
+                        JOIN stocks ON stock_id = stocks.id
+                        JOIN purchase ON pairs.id = purchase.purch_pairs
+                        JOIN prices ON purchase.id = prices.act_id""")
+        data = cursor.fetchall()
+        db.close()
+        # Dodaj kolumnę "Z/S" do danych
+        # Wstaw dane do tabeli, w tym kolumny "Zysk/Strata" z wartościami początkowymi 0.0%
+        self.stock_table.setRowCount(len(data))
+        for row_index, row_data in enumerate(data):
+            for col_index, cell_data in enumerate(row_data):
+                item = QTableWidgetItem(str(cell_data))
+                self.stock_table.setItem(row_index, col_index, item)
+                
+                # Ustaw początkową wartość "Zysk/Strata" na 0.0%
+                if col_index == 9:
+                    item = QTableWidgetItem("0.0%")
+                    self.stock_table.setItem(row_index, 9, item)
     def refresh_data(self):
         for row in range(self.stock_table.rowCount()):
             # Pobierz informacje o giełdzie (kolumna 2 to "Giełda")
             gielda_item = self.stock_table.item(row, 2)
-            if not gielda_item:
-                continue  # Pominięcie wiersza bez informacji o giełdzie
-
             gielda = gielda_item.text()
-            para_item = self.stock_table.item(row, 3)
-
-            if not para_item:
-                continue  # Pominięcie wiersza bez informacji o parze walutowej
-
+            para_item = self.stock_table.item(row, 1)
             para = para_item.text()
-            lowest_ask = None  # Inicjalizacja wartości na None
-
-
+            count_item = self.stock_table.item(row, 3)
+            count = count_item.text()
+            act_price = None  # Inicjalizacja wartości na None
+            act_value = 0
             success = False  # Zmienna śledząca sukces operacji pobierania danych
 
             if gielda == "Zonda":
@@ -539,12 +579,17 @@ class StockTableView(QWidget):
                     response = requests.get(url, headers=headers)
                     response.raise_for_status()
                     data = response.json()
-                    lowest_ask = data.get('ticker', {}).get('lowestAsk')
-                    print(lowest_ask)
+                    act_price = data.get('ticker', {}).get('rate')
+                    act_price_dumb = float(act_price)
+                    count_dumb = float(count)
+                    act_value = act_price_dumb * count_dumb
                     success = True  # Operacja pobierania danych zakończona sukcesem
-                    print(f"!!!zonda: {lowest_ask}")
-                    if success and lowest_ask is not None:
-                        self.stock_table.item(row, 7).setText(str(lowest_ask))
+                    if success and act_price and act_value is not None:
+                        self.stock_table.item(row, 6).setText(str(act_price))
+                        self.stock_table.item(row, 7).setText(str(act_value))
+
+                    else:
+                        print("Warunek nie spełniony")
                 except requests.exceptions.RequestException as e:
                     print(f"Błąd podczas pobierania danych dla Zonda: {e}")
                 except Exception as e:
@@ -600,29 +645,26 @@ class StockTableView(QWidget):
             actual_price = float(count) * float(price_now)
             item = QTableWidgetItem(str(actual_price))
             self.stock_table.setItem(row, 8, item)
-            
-            # if actual_price is not None:
-            #     self.stock_table.item(row, 8).setText(str(actual_price_x))
-
-
             success = False  # Zmienna śledząca sukces operacji pobierania danych
-    def load_stock_data(self):
-        db = sqlite3.connect("simple.db")
-        cursor = db.cursor()
-        cursor.execute("""SELECT 
-        stocks.name AS name, pairs.name AS pair, purchase.date AS date, purchase.count AS count, purchase.price AS price, purchase.value AS value
-                       FROM pairs
-                       JOIN stocks ON stock_id = stocks.id
-                       JOIN purchase ON pairs.id = purchase.purch_pairs""")
-        data = cursor.fetchall()
-        db.close()
+        if success:
+            self.stock_table.item(row, 6).setText(str(act_price))
+            self.stock_table.item(row, 7).setText(str(act_value))
+            
+            # Oblicz stosunek zysku do straty (Z/S) w procentach
+            if float(count) != 0:
+                profit_loss_ratio = ((act_value - float(count)) / float(count)) * 100
+            else:
+                profit_loss_ratio = 0.0
 
-        # Wstaw dane do tabeli
-        self.stock_table.setRowCount(len(data))
-        for row_index, row_data in enumerate(data):
-            for col_index, cell_data in enumerate(row_data):
-                item = QTableWidgetItem(str(cell_data))
-                self.stock_table.setItem(row_index, col_index, item)
+            # Formatuj Z/S jako procent z odpowiednim znakiem plus (+) lub minus (-)
+            if profit_loss_ratio >= 0:
+                formatted_profit_loss_ratio = "{:+.2f}%".format(profit_loss_ratio)
+            else:
+                formatted_profit_loss_ratio = "{:.2f}%".format(profit_loss_ratio)
+
+            self.stock_table.item(row, 9).setText(formatted_profit_loss_ratio)
+
+    
 class EditPairsDialog(QDialog):
     def __init__(self, main_window):
         super().__init__()
@@ -699,6 +741,13 @@ class EditPairsDialog(QDialog):
                 cursor.execute("INSERT INTO pairs (stock_id, name) VALUES (?, ?)", (stock_id, pair))
                 db.commit()
                 db.close()
+                msg = QMessageBox()
+                msg.setIcon(QMessageBox.Icon.Information)
+                msg.setText("Para została dodana.")
+                msg.setWindowTitle("Jest Git!")
+                msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+                msg.exec()
+                self.pair_name.clear()
                 self.load_data()  # Odśwież tabelę po dodaniu pary
             else:
                 db.close()
@@ -710,6 +759,8 @@ class EditPairsDialog(QDialog):
             msg.setWindowTitle("Błąd")
             msg.setStandardButtons(QMessageBox.StandardButton.Ok)
             msg.exec()
+    
+    
     def load_data(self):
         db = sqlite3.connect("simple.db")
         cursor = db.cursor()
@@ -718,6 +769,7 @@ class EditPairsDialog(QDialog):
         db.close()
         # Wstaw dane do tabeli
         self.pair_table.setRowCount(len(data))
+        
         for row_index, row_data in enumerate(data):
             for col_index, cell_data in enumerate(row_data):
                 item = QTableWidgetItem(str(cell_data))

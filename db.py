@@ -26,7 +26,7 @@ def db_create():
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS purchase (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,
-    purch_pairs INTEGER  NOT NULL UNIQUE,
+    purch_pairs INTEGER  NOT NULL,
     date DATE NOT NULL,
     count REAL NOT NULL,
     price DECIMAL NOT NULL,
@@ -39,8 +39,10 @@ def db_create():
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS prices (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL UNIQUE,
+    act_id INTEGER  NOT NULL UNIQUE,
     act_price DECIMAL,
-    act_value DECIMAL
+    act_value DECIMAL,
+    FOREIGN KEY (act_id) REFERENCES purchase(id)
     )
     ''')
 
