@@ -1,0 +1,14 @@
+/* dark_mode.css */
+QWidget {
+    background-color: #333333;
+    color: #ffffff;
+}
+
+QLabel {
+    background-color: transparent;
+}
+
+QPushButton {
+    background-color: #555555;
+    color: #ffffff;
+}
