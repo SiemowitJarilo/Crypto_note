@@ -1,4 +1,6 @@
-import sqlite3
+import sqlite3, requests, json
+import pandas as pd
+from pybit.unified_trading import HTTP
 def db_create():
     # Utwórz lub połącz się z bazą danych
     conn = sqlite3.connect('simple.db')
@@ -31,6 +33,7 @@ def db_create():
     count REAL NOT NULL,
     price DECIMAL NOT NULL,
     value DECIMAL NOT NULL,
+    currency INTEGER, 
     FOREIGN KEY (purch_pairs) REFERENCES pairs(id)
     )
     ''')
@@ -48,35 +51,66 @@ def db_create():
 
     # Zapisz zmiany i zamknij połączenie z bazą danych
     conn.commit()
+
+    cursor.execute("INSERT OR IGNORE INTO stocks(name) VALUES ('Zonda'), ('Bybit'), ('Binance'); ")
+    conn.commit()
+
+
+    conn = sqlite3.connect('simple.db')
+    db = conn.cursor()
+    url = "https://api.zondacrypto.exchange/rest/trading/ticker"
+    headers = {'content-type': 'application/json'}
+    response = requests.request("GET", url, headers=headers)
+    pars= json.loads(response.text)
+    dates = pars.get('ticker', {}).get('market', {}).get('items')
+    df = pd.DataFrame(pars)
+    listt = df.index.tolist()
+    ids_zonda = 1
+    for item in listt:
+        db.execute("INSERT OR IGNORE INTO pairs (stock_id, name) VALUES (?, ?)", (ids_zonda, item,))
+    conn.commit()
+    conn.close()
+
+
+
+    conn = sqlite3.connect('simple.db')
+    db = conn.cursor()
+    session = HTTP(testnet=True)
+    response = session.get_tickers(
+                                    category="spot"
+    )
+    symbols_list = response['result']['list']
+    symbol_list = []  # Tworzymy pustą listę na symbole
+
+    for item in symbols_list:
+        symbol = item['symbol']
+        symbol_list.append(symbol)  # Dodajemy symbol do listy
+    ids_bybit = 2
+    for item in symbol_list:
+        db.execute("INSERT OR IGNORE INTO pairs (stock_id, name) VALUES (?, ?)", (ids_bybit, item,))
+    conn.commit()
+    conn.close()
+
+
+    conn = sqlite3.connect('simple.db')
+    db = conn.cursor()
+    url = f"https://api.binance.com/api/v3/exchangeInfo"
+    headers = {'content-type': 'application/json'}
+
+    response = requests.get(url, headers=headers)
+    response.raise_for_status()
+    data = response.json()
+    act_price = data.get('symbols')
+    ids_binance = 3 
+    for item in act_price:
+        symbol = item.get('symbol')
+        db.execute("INSERT OR IGNORE INTO pairs (stock_id, name) VALUES (?, ?)", (ids_binance, symbol))
+    conn.commit()
+    conn.close()
+
+
     
 
 
-# def db_create_main():
-#     db = sqlite3.connect("simple.db")
-#     cursor = db.cursor()
-#     cursor.execute(
-#     '''CREATE TABLE IF NOT EXISTS inwestycje(
-#             ID	            INTEGER NOT NULL UNIQUE PRIMARY KEY  AUTOINCREMENT,
-#             data_zakupu     DATE NOT NULL,
-#             gielda          STRING NOT NULL,
-#             para            STRING NOT NULL,
-#             ilosc           FLOAT NOT NULL,
-#             cena_zakupu     FLOAT NOT NULL,
-#             wartosc_zakupu  FLOAT NOT NULL,
-#             aktualna_cena   FLOAT,
-#             aktualna_wartosc Float 
-#         );''')
 
-#     db.commit
 
-# def db_create_pairs():
-#     db = sqlite3.connect("simple.db")
-#     cursor = db.cursor()
-#     cursor.execute(
-#     '''CREATE TABLE IF NOT EXISTS pairs (
-#             id INTEGER PRIMARY KEY AUTOINCREMENT,
-#             exchange TEXT NOT NULL,
-#             pairs TEXT NOT NULL
-#         );''')
-
-#     db.commit
