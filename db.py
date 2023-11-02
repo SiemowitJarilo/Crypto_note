@@ -20,7 +20,10 @@ def db_create():
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     stock_id INTEGER  NOT NULL,
     name TEXT NOT NULL,
-    FOREIGN KEY (stock_id) REFERENCES stocks(id)
+    base TEXT,
+    quote TEXT,
+    FOREIGN KEY (stock_id) REFERENCES stocks(id),
+    UNIQUE (stock_id, name)
     )
     ''')
 
@@ -56,56 +59,81 @@ def db_create():
     conn.commit()
 
 
-    conn = sqlite3.connect('simple.db')
-    db = conn.cursor()
     url = "https://api.zondacrypto.exchange/rest/trading/ticker"
     headers = {'content-type': 'application/json'}
     response = requests.request("GET", url, headers=headers)
     pars= json.loads(response.text)
-    dates = pars.get('ticker', {}).get('market', {}).get('items')
-    df = pd.DataFrame(pars)
-    listt = df.index.tolist()
-    ids_zonda = 1
-    for item in listt:
-        db.execute("INSERT OR IGNORE INTO pairs (stock_id, name) VALUES (?, ?)", (ids_zonda, item,))
-    conn.commit()
-    conn.close()
+    pairs = []
+    db = sqlite3.connect('simple.db')
+    cursor = db.cursor()
+    for pair, market_data in pars['items'].items():
+        first_currency = market_data['market']['first']['currency']
+        second_currency = market_data['market']['second']['currency']
+        s_id = 1
+        pairs.append({
+            'pair': pair,
+            'first_currency': first_currency,
+            'second_currency': second_currency
+        })
+        cursor.execute("INSERT OR IGNORE INTO pairs (stock_id, name, base, quote) VALUES (?, ?, ?, ?)", (s_id, pair, first_currency, second_currency))
+    db.commit()
+ 
+    url = "https://api.bybit.com/v2/public/symbols"
+    response = requests.get(url)
+    pairs = []
+    s_id = 2
+    data = response.json()
+
+    if response.status_code == 200:
+        data = response.json()
+
+        for item in data["result"]:
+            pair = item["name"]
+            first_currency = item["base_currency"]
+            second_currency = item["quote_currency"]
+            pairs.append({
+                'pair': pair,
+                'first_currency': first_currency,
+                'second_currency': second_currency})
+            cursor.execute("INSERT OR IGNORE INTO pairs (stock_id, name, base, quote) VALUES (?, ?, ?, ?)", (s_id, pair, first_currency, second_currency))
+        db.commit()
 
 
-
-    conn = sqlite3.connect('simple.db')
-    db = conn.cursor()
-    session = HTTP(testnet=True)
-    response = session.get_tickers(
-                                    category="spot"
-    )
-    symbols_list = response['result']['list']
-    symbol_list = []  # Tworzymy pustą listę na symbole
-
-    for item in symbols_list:
-        symbol = item['symbol']
-        symbol_list.append(symbol)  # Dodajemy symbol do listy
-    ids_bybit = 2
-    for item in symbol_list:
-        db.execute("INSERT OR IGNORE INTO pairs (stock_id, name) VALUES (?, ?)", (ids_bybit, item,))
-    conn.commit()
-    conn.close()
-
-
-    conn = sqlite3.connect('simple.db')
-    db = conn.cursor()
     url = f"https://api.binance.com/api/v3/exchangeInfo"
     headers = {'content-type': 'application/json'}
 
     response = requests.get(url, headers=headers)
     response.raise_for_status()
-    data = response.json()
-    act_price = data.get('symbols')
-    ids_binance = 3 
-    for item in act_price:
-        symbol = item.get('symbol')
-        db.execute("INSERT OR IGNORE INTO pairs (stock_id, name) VALUES (?, ?)", (ids_binance, symbol))
-    conn.commit()
+    pairs = []
+    s_id = 3 
+    if response.status_code == 200:
+        data = response.json()
+        for item in data["symbols"]:
+            pair = item["symbol"]
+            first_currency = item["baseAsset"]
+            second_currency = item["quoteAsset"]
+            pairs.append({
+                'pair': pair,
+                'first_currency': first_currency,
+                'second_currency': second_currency})
+            cursor.execute("INSERT OR IGNORE INTO pairs (stock_id, name, base, quote) VALUES (?, ?, ?, ?)", (s_id, pair, first_currency, second_currency))
+        db.commit()
+
+
+    # conn = sqlite3.connect('simple.db')
+    # db = conn.cursor()
+    # url = f"https://api.binance.com/api/v3/exchangeInfo"
+    # headers = {'content-type': 'application/json'}
+
+    # response = requests.get(url, headers=headers)
+    # response.raise_for_status()
+    # data = response.json()
+    # act_price = data.get('symbols')
+    # ids_binance = 3 
+    # for item in act_price:
+    #     symbol = item.get('symbol')
+    #     db.execute("INSERT OR IGNORE INTO pairs (stock_id, name) VALUES (?, ?)", (ids_binance, symbol))
+    # conn.commit()
     conn.close()
 
 

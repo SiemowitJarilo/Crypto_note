@@ -1,4 +1,4 @@
-import sys, sqlite3, requests, logging
+import sys, sqlite3, requests, logging, re
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -80,6 +80,7 @@ class StockTableView(QWidget):
         self.refresh_data()
         self.calc_all_z_s()
 
+
     def create_stock_table(self):
         self.stock_table = QTableWidget()
         self.stock_table.setColumnCount(11)
@@ -114,6 +115,7 @@ class StockTableView(QWidget):
         self.label_pair = QLabel("Para:")
         self.pair_combo = QComboBox()  # Zmieniamy na QComboBox zamiast QLineEdit
         self.pair_combo.setStyleSheet("max-width: 200px;")
+        self.pair_combo.setEditable(True)
         # Po zmianie giełdy wybieramy odpowiednie pary walutowe
         self.stock_combo.currentIndexChanged.connect(self.load_pairs_for_exchange)
         self.load_pairs_for_exchange()  # Inicjalizacja listy par walutowych
@@ -169,8 +171,9 @@ class StockTableView(QWidget):
         formula_layout.addRow(self.label_pair, self.pair_combo)
         formula_layout.addRow(self.label_count, self.stock_count)
         formula_layout.addRow(self.label_price, self.stock_price)
-        formula_layout.addRow(self.label_value, self.stock_value)
         formula_layout.addRow(self.label_currency, self.stock_currency)
+        formula_layout.addRow(self.label_value, self.stock_value)
+
         formula_layout.addRow(self.add_button, self.remove_button)
         formula_layout.addRow(self.refresh_button)
 
@@ -205,26 +208,61 @@ class StockTableView(QWidget):
         main_layout.addLayout(stats_layout, 0, 0)   # Dodaj układ statystyk do głównego układu
 
         self.stats_field.setLayout(main_layout)
-    
+
     def calc_all_z_s(self):
         total_value = 0.0
         total_act = 0.0
-
+        x = 0
         for row in range(self.stock_table.rowCount()):
-            item1 = self.stock_table.item(row, 5)
-            item2 = self.stock_table.item(row, 7)
-   
-            if item1 is not None and item2 is not None:
+            buy_price = self.stock_table.item(row, 5)
+            act_price = self.stock_table.item(row, 7)
+            currency = self.stock_table.item(row, 9)
+            currency_text = currency.text()
+            total_z_s_pln = 0
+            total_z_s_usdt = 0
+            if currency_text == 'PLN':
                 try:
-                    value1 = float(item1.text())
-                    value2 = float(item2.text())
+                    value1 = float(buy_price.text())
+                    value2 = float(act_price.text())
                     total_value += value1
                     total_act += value2
                 except ValueError:
                     pass
                 act = round(total_act, 2)
-                self.total_z_s = act - total_value
-                self.total_loss_profit.setText(f"{self.total_z_s:.2f}")  # Wyświetl wynik z zaokrągleniem do 2 miejsc po przecinku
+                total_z_s_pln = act - total_value
+            elif currency_text == 'USDT':
+                url = f"https://api.zondacrypto.exchange/rest/trading/ticker/USDT-PLN"
+                headers = {'content-type': 'application/json'}       
+                response = requests.get(url, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+                pln_usdt_act_price = data.get('ticker', {}).get('rate') 
+                print(pln_usdt_act_price)
+                try:
+                    pln_usdt = float(pln_usdt_act_price)
+                    value1 = float(buy_price.text())
+                    value2 = float(act_price.text())
+                    total_value += value1 * pln_usdt
+                    total_act += value2 * pln_usdt
+                except ValueError:
+                    pass
+                act = round(total_act, 2)   
+                total_z_s_usdt = act - total_value      
+            self.total_z_s = total_z_s_pln + total_z_s_usdt
+            self.total_loss_profit.setText(f"{self.total_z_s:.2f}")
+                
+
+            # if buy_price is not None and act_price is not None:
+            #     try:
+            #         value1 = float(buy_price.text())
+            #         value2 = float(act_price.text())
+            #         total_value += value1
+            #         total_act += value2
+            #     except ValueError:
+            #         pass
+            #     act = round(total_act, 2)
+            #     self.total_z_s = act - total_value
+            #     self.total_loss_profit.setText(f"{self.total_z_s:.2f}")  # Wyświetl wynik z zaokrągleniem do 2 miejsc po przecinku
 
     def refresh_data(self):
         for row in range(self.stock_table.rowCount()):
@@ -248,17 +286,17 @@ class StockTableView(QWidget):
         for row in range(self.stock_table.rowCount()):
             count_item = self.stock_table.item(row, 4)
             price_now_item = self.stock_table.item(row, 7)
-            print(f"price_now_item: {price_now_item}")
+            
 
             
             if not count_item or not price_now_item:
                 continue
             count = count_item.text()
-            print(f"count: {count}")
+       
             price_now = price_now_item.text()
-            print(f"price_now: {price_now}")
+    
             actual_value = float(count) * float(price_now)
-            print(f"actual_value: {actual_value}")
+
 
             
             # Obsługa błędu, gdy nie można uzyskać ceny lub danych z tabeli
@@ -366,17 +404,13 @@ class StockTableView(QWidget):
             response.raise_for_status()
             data = response.json()
             act_price = data.get('price')
-            print("-------------------------------------------------")
+
             act_price_dumb = float(act_price)
             act_price_rounded = round(act_price_dumb, 2)
             count_dumb = float(count)
             act_value = act_price_dumb * count_dumb
             act_value_rounded = round(act_value, 2)
-            print("-------------------------------------------------")
-            print(f"act_price: {act_price_dumb}")
-            print(f"count_dumb: {count_dumb}")
-            print(f"act_value: {act_value}")
-            print("-------------------------------------------------")
+
 
 
             
@@ -542,15 +576,16 @@ class StockTableView(QWidget):
     def get_zonda_curr(self, selected_pair):
         if not selected_pair:
             return None
-        url = f"https://api.zondacrypto.exchange/rest/trading/ticker/{selected_pair}"
-        headers = {'content-type': 'application/json'}
-
+        db = sqlite3.connect('simple.db')
+        cursor = db.cursor()
         try:
-            response = requests.get(url, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-            currency = data.get('ticker', {}).get('market', {}).get('second', {}).get('currency')
-            return currency
+            
+            query = "SELECT quote FROM pairs where name = ?"
+           
+            cursor.execute(query, (selected_pair,))
+            data = cursor.fetchone()
+
+            return data[0]
         except Exception as e:
             print(f"Wystąpił błąd: {e}")
             return None
@@ -564,7 +599,7 @@ class StockTableView(QWidget):
             response = session.get_tickers(category="inverse", symbol=selected_pair)
             lowest_ask = response['result']['list'][0]['lastPrice']
             x = float(lowest_ask)
-            print(f"xxxxxxxxxxxxxxxxx: {x}")
+
             if lowest_ask:
                 try:
                     return float(lowest_ask)
@@ -574,6 +609,22 @@ class StockTableView(QWidget):
             pass
 
         return None
+    def get_bybit_curr(self, selected_pair):
+        if not selected_pair:
+            return None
+        db = sqlite3.connect('simple.db')
+        cursor = db.cursor()
+        try:
+            
+            query = "SELECT quote FROM pairs where name = ?"
+           
+            cursor.execute(query, (selected_pair,))
+            data = cursor.fetchone()
+
+            return data[0]
+        except Exception as e:
+            print(f"Wystąpił błąd: {e}")
+            return None
     def get_binance_price(self):
         selected_pair = self.pair_combo.currentText()
         if not selected_pair:
@@ -597,6 +648,23 @@ class StockTableView(QWidget):
             pass
 
         return None
+    def get_binance_curr(self, selected_pair):
+        if not selected_pair:
+            return None
+        db = sqlite3.connect('simple.db')
+        cursor = db.cursor()
+        try:
+            
+            query = "SELECT quote FROM pairs where name = ?"
+           
+            cursor.execute(query, (selected_pair,))
+            data = cursor.fetchone()
+
+            return data[0]
+           
+        except Exception as e:
+            print(f"Wystąpił błąd: {e}")
+            return None
     def update_stock_value(self):
         quantity = self.stock_count.value()
         price = self.stock_price.value()
@@ -626,14 +694,31 @@ class StockTableView(QWidget):
             self.stock_price.setValue(0.0)
         
     def update_currency(self):
+        selected_stock = self.stock_combo.currentText()
         selected_pair = self.pair_combo.currentText()
-        currency = self.get_zonda_curr(selected_pair)
 
-        if currency is not None:
-            self.stock_currency.setText(currency)
+        if selected_stock == 'Zonda':
+            currency_zonda = self.get_zonda_curr(selected_pair)
+            self.stock_currency.setText(currency_zonda)
+        elif selected_stock == 'Bybit':
+            currency_bybit = self.get_bybit_curr(selected_pair)
+            self.stock_currency.setText(currency_bybit)
+        elif selected_stock == 'Binance':
+            currency_binance = self.get_binance_curr(selected_pair)
+            self.stock_currency.setText(currency_binance)
         else:
-            # Jeśli nie udało się pobrać waluty, ustaw pole na brak danych
             self.stock_currency.setText("Brak danych")
+        # 
+        # 
+        
+        # if currency_zonda is not None:
+        #     self.stock_currency.setText(currency_zonda)
+        # elif currency_bybit is not None:
+        #     self.stock_currency.setText(currency_bybit)
+        # else:
+        #     # Jeśli nie udało się pobrać waluty, ustaw pole na brak danych
+        #     self.stock_currency.setText("Brak danych")
+        # # if 
     def add_data_to_db(self):
         
         # Pobierz dane z pól formularza
