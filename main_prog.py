@@ -862,7 +862,7 @@ class StockTableView(QWidget):
         # Connect to the database
         db = sqlite3.connect("simple.db")
         cursor = db.cursor()
-
+xxx
         try:
             # Iterate over the list of IDs and delete records from the database
             for record_id in records_to_delete:
