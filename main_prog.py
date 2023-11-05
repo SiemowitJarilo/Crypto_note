@@ -78,7 +78,7 @@ class StockTableView(QWidget):
         self.setLayout(layout)
         self.load_stock_data()
         self.refresh_data()
-        self.calc_all_z_s()
+        # self.calc_all_z_s()
 
 
     def create_stock_table(self):
@@ -186,9 +186,12 @@ class StockTableView(QWidget):
         main_layout = QGridLayout()
 
         stats_layout = QFormLayout()
+        self.refresh_z_s_button = QPushButton("Odśwież")
+        self.refresh_z_s_button.setMaximumWidth(293)
+        self.refresh_z_s_button.clicked.connect(self.calc_all_z_s)
         self.total_loss_profit_label = QLabel("Zysk/Strata: ")
         self.total_loss_profit_label.setStyleSheet("font-size: 16px; color: blue; font-weight: bold;")
-        self.calc_all_z_s()
+        # self.calc_all_z_s()
         self.total_loss_profit = QLabel()
         self.total_loss_profit.setStyleSheet("font-size: 16px; color: blue; font-weight: bold;")
         
@@ -198,6 +201,7 @@ class StockTableView(QWidget):
         self.pln_usd_Label = QLabel("PLN/USD")
         self.pln_usd = QLabel(str(self.nbp_currency_prices()))
 
+        stats_layout.addRow(self.refresh_z_s_button)
         stats_layout.addRow(self.total_loss_profit_label, self.total_loss_profit)
 
         stats_layout.addRow(self.pln_usd_Label, self.pln_usd)
@@ -214,22 +218,32 @@ class StockTableView(QWidget):
         total_act = 0.0
         x = 0
         for row in range(self.stock_table.rowCount()):
-            buy_price = self.stock_table.item(row, 5)
-            act_price = self.stock_table.item(row, 7)
+            buy_price = self.stock_table.item(row, 6)
+            act_price = self.stock_table.item(row, 8)
             currency = self.stock_table.item(row, 9)
             currency_text = currency.text()
-            total_z_s_pln = 0
-            total_z_s_usdt = 0
+            a = 0
             if currency_text == 'PLN':
                 try:
+                  
+                    print("-----------PLN-----------")
+                    print(f"----{x}----")
+                    x += 1
                     value1 = float(buy_price.text())
+                    print(f"V1: {value1}")
                     value2 = float(act_price.text())
+                    print(f"V2: {value2}")
                     total_value += value1
+                    print(f"TV: {total_value}")
                     total_act += value2
+                    print(f"TA: {total_act}")
+                    a = total_act - total_value
+                    print(f'SUM: {a}')
                 except ValueError:
                     pass
                 act = round(total_act, 2)
-                total_z_s_pln = act - total_value
+                self.total_z_s = act - total_value
+                print(f'TZS: {self.total_z_s}')
             elif currency_text == 'USDT':
                 url = f"https://api.zondacrypto.exchange/rest/trading/ticker/USDT-PLN"
                 headers = {'content-type': 'application/json'}       
@@ -237,33 +251,45 @@ class StockTableView(QWidget):
                 response.raise_for_status()
                 data = response.json()
                 pln_usdt_act_price = data.get('ticker', {}).get('rate') 
-                print(pln_usdt_act_price)
+     
                 try:
+                
+                    print("-----------USDT-----------")
                     pln_usdt = float(pln_usdt_act_price)
+                    print(f'PLN/USDT: {pln_usdt}')
+                    print(f"----{x}----")
+                    x += 1
                     value1 = float(buy_price.text())
+                    print(f"V1_: {value1} USDT")
+                    valu1_x_kurs = value1 * pln_usdt
+                    print(f"V1_x_: {valu1_x_kurs} PLN")
                     value2 = float(act_price.text())
-                    total_value += value1 * pln_usdt
-                    total_act += value2 * pln_usdt
+                    print(f"V2_: {value2} USDT")
+                    valu2_x_kurs = value2 * pln_usdt
+                    print(f"V2_x_: {valu2_x_kurs} PLN")
+                    total_value += valu1_x_kurs
+                    print(f"TV_: {total_value}")
+                    total_act += valu2_x_kurs
+                    print(f"TA_: {total_act}")
+                    a = total_act - total_value
+                    print(f'SUM: {a}')
                 except ValueError:
                     pass
                 act = round(total_act, 2)   
-                total_z_s_usdt = act - total_value      
-            self.total_z_s = total_z_s_pln + total_z_s_usdt
-            self.total_loss_profit.setText(f"{self.total_z_s:.2f}")
-                
+                self.total_z_s = act - total_value
+                print(f'TZS: {self.total_z_s}')
+            
+            # print(f'SUM: {self.total_z_s}')
+            
+        total_v = total_value
+        print(total_v)
+        total_a = total_act
+        print(total_a)     
+        self.sum_sum = total_a - total_v
+        
+        self.total_loss_profit.setText(f"{self.sum_sum:.2f}")        
 
-            # if buy_price is not None and act_price is not None:
-            #     try:
-            #         value1 = float(buy_price.text())
-            #         value2 = float(act_price.text())
-            #         total_value += value1
-            #         total_act += value2
-            #     except ValueError:
-            #         pass
-            #     act = round(total_act, 2)
-            #     self.total_z_s = act - total_value
-            #     self.total_loss_profit.setText(f"{self.total_z_s:.2f}")  # Wyświetl wynik z zaokrągleniem do 2 miejsc po przecinku
-
+            
     def refresh_data(self):
         for row in range(self.stock_table.rowCount()):
             # Pobierz informacje o giełdzie (kolumna 2 to "Giełda")
@@ -341,7 +367,7 @@ class StockTableView(QWidget):
                     
                 z_s_item.setText("")
             self.update_actual_price(row, actual_value)
-            self.calc_all_z_s()
+            # self.calc_all_z_s()
 
     def refresh_zonda(self, row, para, count):
         url = f"https://api.zondacrypto.exchange/rest/trading/ticker/{para}"
@@ -504,8 +530,8 @@ class StockTableView(QWidget):
         self.ax.set_title('Wartość inwestycji na poszczególnych giełdach')
 
         # Wartość portfela w środku pierścienia
-        total_portfolio_value = df['total_value'].sum()
-        self.ax.text(0, 0, f'Total:\n{total_portfolio_value:.2f}', fontsize=12, ha='center', va='center')
+        # total_portfolio_value = df['total_value'].sum()
+        # self.ax.text(0, 0, f'Total:\n{total_portfolio_value:.2f}', fontsize=12, ha='center', va='center')
 
         # Utworzenie legendy z etykietami
         self.ax.legend(labels, title="Giełda", loc="upper right", bbox_to_anchor=(1.1, 1))
@@ -862,7 +888,7 @@ class StockTableView(QWidget):
         # Connect to the database
         db = sqlite3.connect("simple.db")
         cursor = db.cursor()
-xxx
+
         try:
             # Iterate over the list of IDs and delete records from the database
             for record_id in records_to_delete:
